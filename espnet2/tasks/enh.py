@@ -43,6 +43,7 @@ from espnet2.enh.loss.wrappers.multilayer_pit_solver import MultiLayerPITSolver
 from espnet2.enh.loss.wrappers.pit_solver import PITSolver
 from espnet2.enh.separator.abs_separator import AbsSeparator
 from espnet2.enh.separator.asteroid_models import AsteroidModel_Converter
+from espnet2.enh.separator.cmgan_separator import CMGANSeparator
 from espnet2.enh.separator.conformer_separator import ConformerSeparator
 from espnet2.enh.separator.dan_separator import DANSeparator
 from espnet2.enh.separator.dc_crn_separator import DC_CRNSeparator
@@ -52,7 +53,11 @@ from espnet2.enh.separator.dpcl_separator import DPCLSeparator
 from espnet2.enh.separator.dprnn_separator import DPRNNSeparator
 from espnet2.enh.separator.dptnet_separator import DPTNetSeparator
 from espnet2.enh.separator.fasnet_separator import FaSNetSeparator
+from espnet2.enh.separator.fullsubnet_plus_separator import (
+    FullSubNet_PlusSeparator,
+)
 from espnet2.enh.separator.ineube_separator import iNeuBe
+from espnet2.enh.separator.mp_senet_separator import MP_SENetSeparator
 from espnet2.enh.separator.neural_beamformer import NeuralBeamformer
 from espnet2.enh.separator.rnn_separator import RNNSeparator
 from espnet2.enh.separator.skim_separator import SkiMSeparator
@@ -109,6 +114,9 @@ separator_choices = ClassChoices(
         tfgridnet=TFGridNet,
         tfgridnetv2=TFGridNetV2,
         uses=USESSeparator,
+        mpsenet=MP_SENetSeparator,
+        cmgan=CMGANSeparator,
+        fullsubp=FullSubNet_PlusSeparator,
     ),
     type_check=AbsSeparator,
     default="rnn",
@@ -404,8 +412,12 @@ class EnhancementTask(AbsTask):
                 retval = preprocessor_choices.get_class(args.preprocessor)(
                     train=train,
                     source_scp=os.path.join(
-                        os.path.dirname(args.train_data_path_and_name_and_type[0][0]),
-                        args.preprocessor_conf.get("source_scp_name", "spk1.scp"),
+                        os.path.dirname(
+                            args.train_data_path_and_name_and_type[0][0]
+                        ),
+                        args.preprocessor_conf.get(
+                            "source_scp_name", "spk1.scp"
+                        ),
                     ),
                     ref_num=args.preprocessor_conf.get(
                         "ref_num", args.separator_conf["num_spk"]
@@ -413,7 +425,9 @@ class EnhancementTask(AbsTask):
                     dynamic_mixing_gain_db=args.preprocessor_conf.get(
                         "dynamic_mixing_gain_db", 0.0
                     ),
-                    speech_name=args.preprocessor_conf.get("speech_name", "speech_mix"),
+                    speech_name=args.preprocessor_conf.get(
+                        "speech_name", "speech_mix"
+                    ),
                     speech_ref_name_prefix=args.preprocessor_conf.get(
                         "speech_ref_name_prefix", "speech_ref"
                     ),
@@ -435,15 +449,23 @@ class EnhancementTask(AbsTask):
                     speech_volume_normalize=getattr(
                         args, "speech_volume_normalize", None
                     ),
-                    use_reverberant_ref=getattr(args, "use_reverberant_ref", None),
+                    use_reverberant_ref=getattr(
+                        args, "use_reverberant_ref", None
+                    ),
                     num_spk=getattr(args, "num_spk", 1),
                     num_noise_type=getattr(args, "num_noise_type", 1),
                     sample_rate=getattr(args, "sample_rate", 8000),
-                    force_single_channel=getattr(args, "force_single_channel", False),
-                    channel_reordering=getattr(args, "channel_reordering", False),
+                    force_single_channel=getattr(
+                        args, "force_single_channel", False
+                    ),
+                    channel_reordering=getattr(
+                        args, "channel_reordering", False
+                    ),
                     categories=getattr(args, "categories", None),
                     speech_segment=getattr(args, "speech_segment", None),
-                    avoid_allzero_segment=getattr(args, "avoid_allzero_segment", True),
+                    avoid_allzero_segment=getattr(
+                        args, "avoid_allzero_segment", True
+                    ),
                     flexible_numspk=getattr(args, "flexible_numspk", False),
                 )
                 kwargs.update(args.preprocessor_conf)
@@ -475,9 +497,15 @@ class EnhancementTask(AbsTask):
         cls, train: bool = True, inference: bool = False
     ) -> Tuple[str, ...]:
         retval = ["speech_mix"]
-        retval += ["dereverb_ref{}".format(n) for n in range(1, MAX_REFERENCE_NUM + 1)]
-        retval += ["speech_ref{}".format(n) for n in range(2, MAX_REFERENCE_NUM + 1)]
-        retval += ["noise_ref{}".format(n) for n in range(1, MAX_REFERENCE_NUM + 1)]
+        retval += [
+            "dereverb_ref{}".format(n) for n in range(1, MAX_REFERENCE_NUM + 1)
+        ]
+        retval += [
+            "speech_ref{}".format(n) for n in range(2, MAX_REFERENCE_NUM + 1)
+        ]
+        retval += [
+            "noise_ref{}".format(n) for n in range(1, MAX_REFERENCE_NUM + 1)
+        ]
         retval += ["category"]
         retval = tuple(retval)
         assert check_return_type(retval)
@@ -507,7 +535,9 @@ class EnhancementTask(AbsTask):
             # that packed by older version
             for ctr in args.criterions:
                 criterion_conf = ctr.get("conf", {})
-                criterion = criterion_choices.get_class(ctr["name"])(**criterion_conf)
+                criterion = criterion_choices.get_class(ctr["name"])(
+                    **criterion_conf
+                )
                 loss_wrapper = loss_wrapper_choices.get_class(ctr["wrapper"])(
                     criterion=criterion, **ctr["wrapper_conf"]
                 )
@@ -544,4 +574,6 @@ class EnhancementTask(AbsTask):
             args = copy.deepcopy(args)
             args.fold_length = args.fold_length[0:1]
 
-        return super().build_iter_factory(args, distributed_option, mode, kwargs)
+        return super().build_iter_factory(
+            args, distributed_option, mode, kwargs
+        )
